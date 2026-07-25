@@ -1,0 +1,147 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserRole() == 'super_admin';
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() in ['super_admin', 'manager'];
+    }
+
+    function isStaff() {
+      return isAuthenticated() && getUserRole() in ['super_admin', 'manager', 'mechanic', 'sales_staff', 'inventory_staff'];
+    }
+
+    function isCustomer() {
+      return isAuthenticated() && getUserRole() == 'customer';
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isPdf() {
+      return request.resource.contentType == 'application/pdf';
+    }
+
+    function isVideo() {
+      return request.resource.contentType.matches('video/.*');
+    }
+
+    function sizeUnderMB(limitMB) {
+      return request.resource.size < limitMB * 1024 * 1024;
+    }
+
+    // ============================================================
+    // User avatars
+    // ============================================================
+    match /avatars/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId
+                    && isImage() && sizeUnderMB(5);
+    }
+
+    // ============================================================
+    // Product images
+    // ============================================================
+    match /products/{productId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && sizeUnderMB(10);
+    }
+
+    // ============================================================
+    // Brand logos
+    // ============================================================
+    match /brands/{brandId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && sizeUnderMB(2);
+    }
+
+    // ============================================================
+    // Category images
+    // ============================================================
+    match /categories/{categoryId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && sizeUnderMB(5);
+    }
+
+    // ============================================================
+    // Service images
+    // ============================================================
+    match /services/{serviceId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && sizeUnderMB(10);
+    }
+
+    // ============================================================
+    // Blog images
+    // ============================================================
+    match /blog/{postId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && sizeUnderMB(10);
+    }
+
+    // ============================================================
+    // Promotion images
+    // ============================================================
+    match /promotions/{promotionId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && sizeUnderMB(5);
+    }
+
+    // ============================================================
+    // Customer uploads (invoices, etc.)
+    // ============================================================
+    match /customers/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || isStaff()
+      );
+      allow write: if isAuthenticated() && request.auth.uid == userId
+                    && (isImage() || isPdf()) && sizeUnderMB(10);
+    }
+
+    // ============================================================
+    // Order attachments
+    // ============================================================
+    match /orders/{orderId}/{allPaths=**} {
+      allow read: if isAuthenticated() && isStaff();
+      allow write: if isStaff() && (isImage() || isPdf()) && sizeUnderMB(10);
+    }
+
+    // ============================================================
+    // Staff documents (certificates, etc.)
+    // ============================================================
+    match /staff/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin() && isPdf() && sizeUnderMB(10);
+    }
+
+    // ============================================================
+    // Review images
+    // ============================================================
+    match /reviews/{reviewId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated() && isImage() && sizeUnderMB(5);
+    }
+
+    // ============================================================
+    // General public assets
+    // ============================================================
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

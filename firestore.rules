@@ -1,0 +1,253 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserRole() == 'super_admin';
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() in ['super_admin', 'manager'];
+    }
+
+    function isStaff() {
+      return isAuthenticated() && getUserRole() in ['super_admin', 'manager', 'mechanic', 'sales_staff', 'inventory_staff'];
+    }
+
+    function isCustomer() {
+      return isAuthenticated() && getUserRole() == 'customer';
+    }
+
+    function ownsDocument(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isEmailVerified() {
+      return isAuthenticated() && request.auth.token.email_verified;
+    }
+
+    // ============================================================
+    // Users
+    // ============================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        isSuperAdmin() ||
+        (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'isActive']))
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Customers
+    // ============================================================
+    match /customers/{customerId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isStaff()
+      );
+      allow create: if isAuthenticated() && (
+        isStaff() ||
+        (isCustomer() && request.resource.data.userId == request.auth.uid)
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isStaff()
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Vehicles
+    // ============================================================
+    match /vehicles/{vehicleId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId in get(/databases/$(database)/documents/customers/$(resource.data.customerId)).data.userId == request.auth.uid ||
+        isStaff()
+      );
+      allow create: if isAuthenticated() && (
+        isStaff() ||
+        isCustomer()
+      );
+      allow update: if isAuthenticated() && (
+        isStaff() ||
+        isCustomer()
+      );
+      allow delete: if isStaff();
+    }
+
+    // ============================================================
+    // Brands
+    // ============================================================
+    match /brands/{brandId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Categories
+    // ============================================================
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Products
+    // ============================================================
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Suppliers
+    // ============================================================
+    match /suppliers/{supplierId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Inventory
+    // ============================================================
+    match /inventory/{inventoryId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && getUserRole() == 'inventory_staff');
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Orders
+    // ============================================================
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isStaff()
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        isStaff()
+      );
+      allow update: if isAuthenticated() && (
+        isStaff() ||
+        (isCustomer() && resource.data.userId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'paymentStatus', 'internalNotes']))
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Services
+    // ============================================================
+    match /services/{serviceId} {
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Bookings
+    // ============================================================
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isStaff()
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.userId == request.auth.uid ||
+        isStaff()
+      );
+      allow update: if isAuthenticated() && (
+        isStaff() ||
+        (isCustomer() && resource.data.userId == request.auth.uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'internalNotes', 'assignedMechanicId']))
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // Reviews
+    // ============================================================
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // ============================================================
+    // Promotions
+    // ============================================================
+    match /promotions/{promotionId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Coupons
+    // ============================================================
+    match /coupons/{couponId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Notifications
+    // ============================================================
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isStaff();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================================
+    // Blog Posts
+    // ============================================================
+    match /blogPosts/{postId} {
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ============================================================
+    // FAQs
+    // ============================================================
+    match /faqs/{faqId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // Settings
+    // ============================================================
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+  }
+}
